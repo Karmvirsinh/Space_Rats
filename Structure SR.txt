@@ -1,0 +1,35 @@
+Space_Rats/
+│
+├── src/                       # Source code files
+│   ├── main.py                # Main entry point: runs simulations, compares bots
+│   ├── ship_generator.py      # Generates 30x30 ship grid (reused from Project 1)
+│   ├── baseline_bot.py        # Baseline bot: localization + stationary rat tracking
+│   ├── enhanced_bot.py        # Your improved bot for stationary rat
+│   ├── moving_enhanced_bot.py # Enhanced bot for moving rat (question 4)
+│   ├── space_rat_tracker.py   # Rat knowledge base, updates for stationary + moving
+│   ├── localization.py        # Bot localization logic (shared by bots)
+│   ├── utils.py               # Helpers: distance, ping probability, plotting
+│   └── visualize.py           # Interactive visualization of bot chasing rat
+│
+├── data/                      # Input and raw data
+│   ├── ship_layouts/          # Pre-generated 30x30 ship grids (optional)
+│   └── performance_metrics/   # Raw simulation data (e.g., CSV files)
+│
+├── results/                   # Outputs
+│   ├── graphs/                # Plots: performance vs. alpha (stationary + moving)
+│   ├── logs/                  # Debugging logs (e.g., bot actions, failures)
+│   └── csv/                   # Processed results (e.g., avg moves/senses/pings)
+│
+├── tests/                     # Unit and integration tests
+│   ├── test_baseline_bot.py   # Baseline bot tests
+│   ├── test_enhanced_bot.py   # Enhanced bot (stationary) tests
+│   ├── test_moving_enhanced_bot.py # Moving rat bot tests
+│   ├── test_ship_generator.py # Ship generation tests
+│   ├── test_space_rat_tracker.py # Rat probability update tests
+│   └── test_utils.py          # Helper function tests
+│
+├── docs/                      # Documentation
+│   ├── report.md              # Final writeup addressing all questions
+│   └── explanation_formulas.md # Math for knowledge base updates (Q1, Q4)
+│
+└── README.md                  # Project overview, setup, and run instructions
