@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import numpy as np
 import matplotlib.pyplot as plt
 from baseline_bot1_withratmove import baseline_bot
@@ -55,3 +56,4 @@ def visualize_bot(ship):
 if __name__ == "__main__":
     ship = generate_ship(30)
     visualize_bot(ship)
+

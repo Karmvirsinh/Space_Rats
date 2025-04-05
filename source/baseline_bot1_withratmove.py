@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import numpy as np
 import random
 from source.utils import sense_blocked, move, ping_detector, manhattan_distance, bfs_path
@@ -213,4 +214,3 @@ def baseline_bot(ship, alpha=0.15):
 if __name__ == "__main__":
     ship = generate_ship(30)
     moves, senses, pings, steps, true_rat_pos = baseline_bot(ship)
-    print(f"Final: Moves: {moves}, Senses: {senses}, Pings: {pings}")
