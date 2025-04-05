@@ -1,7 +1,7 @@
 import numpy as np
 import random
-from source.utils import sense_blocked, move, ping_detector, manhattan_distance, bfs_path
-from source.ship_generator import generate_ship
+from utils import sense_blocked, move, ping_detector, manhattan_distance, bfs_path
+from ship_generator import generate_ship
 
 def precompute_blocked(ship):
     D = ship.shape[0]
@@ -33,29 +33,16 @@ def reverse_move(direction):
     rev = {'up': 'down', 'down': 'up', 'left': 'right', 'right': 'left'}
     return rev[direction]
 
-def move_rat(ship, rat_pos):
-    valid_moves = [m for m in ['up', 'down', 'left', 'right'] if move(ship, rat_pos, m) != rat_pos]
-    if valid_moves:
-        return move(ship, rat_pos, random.choice(valid_moves))
-    return rat_pos
-
 def baseline_bot(ship, alpha=0.15):
     D = ship.shape[0]
     moves, senses, pings = 0, 0, 0
     blocked_map = precompute_blocked(ship)
 
-    # Selection for rat type
-    print("Select rat type:")
-    print("1. Stationary Rat")
-    print("2. Moving Rat")
-    choice = input("Enter 1 or 2: ")
-    moving_rat = (choice == '2')
-
-    # --- Phase 1: Localization ---
+    # --- Phase 1: Localization (new baseline_bot, old logging style) ---
     bot_knowledge = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1}
     true_bot_pos = random.choice(list(bot_knowledge))
     bot_pos = true_bot_pos
-    steps = [(bot_pos, moves, senses, pings, len(bot_knowledge), None)]
+    steps = [(bot_pos, moves, senses, pings, len(bot_knowledge))]
     print(f"True Bot Spawn: {true_bot_pos}")
     print(f"Step 0: Bot at {bot_pos}, Knowledge size: {len(bot_knowledge)}")
 
@@ -65,7 +52,7 @@ def baseline_bot(ship, alpha=0.15):
     blocked_count = sum(1 for x in current_sensor if x == 0)
     bot_knowledge = {pos for pos in bot_knowledge if get_surroundings(ship, pos) == current_sensor}
     print(f"Step 1: Sensed {blocked_count} blocked neighbors, Knowledge size: {len(bot_knowledge)}")
-    steps.append((bot_pos, moves, senses, pings, len(bot_knowledge), None))
+    steps.append((bot_pos, moves, senses, pings, len(bot_knowledge)))
     step = 2
     max_steps = 100
 
@@ -92,7 +79,7 @@ def baseline_bot(ship, alpha=0.15):
                 new_knowledge.add(new_pos_candidate)
         bot_knowledge = new_knowledge
         print(f"Step {step}: Knowledge size: {len(bot_knowledge)}")
-        steps.append((bot_pos, moves, senses, pings, len(bot_knowledge), None))
+        steps.append((bot_pos, moves, senses, pings, len(bot_knowledge)))
         step += 1
 
     if len(bot_knowledge) == 1:
@@ -102,20 +89,20 @@ def baseline_bot(ship, alpha=0.15):
             estimated_spawn = add_move(estimated_spawn, reverse_move(m))
         print(f"Step {step}: Localized, Bot at {estimated_spawn}")
         final_pos = estimated_spawn
-        steps.append((final_pos, moves, senses, pings, 1, None))
+        steps.append((final_pos, moves, senses, pings, 1))
     else:
         final_pos = bot_pos
         print(f"Max steps reached, stuck at {len(bot_knowledge)} positions: {bot_knowledge}")
     print(f"Phase 1 done, Bot at {final_pos}, True Spawn was {true_bot_pos}")
 
-    # --- Phase 2: Rat Tracking ---
+    # --- Phase 2: Rat Tracking (old baseline_bot) ---
     rat_knowledge = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1 and (r, c) != final_pos}
     true_rat_pos = random.choice(list(rat_knowledge))
     bot_pos = final_pos
     print(f"True Rat Spawn: {true_rat_pos}")
 
     rat_probs = {pos: 1.0 / len(rat_knowledge) for pos in rat_knowledge}
-    steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
+    steps.append((bot_pos, moves, senses, pings, len(rat_knowledge)))
     target_path = []
     max_steps = 200
 
@@ -138,22 +125,7 @@ def baseline_bot(ship, alpha=0.15):
         if new_pos != bot_pos:
             print(f"Step {step}: Moved {direction} to {new_pos}, Rat KB size: {len(rat_knowledge)}")
         bot_pos = new_pos
-
-        # Check catch before rat moves
-        if bot_pos == true_rat_pos:
-            pings += 1
-            ping = ping_detector(bot_pos, true_rat_pos, alpha)
-            print(f"Step {step}: Pinged at {bot_pos}, Heard ping: {ping}, Ping prob: 1.000")
-            print(f"Rat found at {bot_pos}")
-            steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
-            return moves, senses, pings, steps, true_rat_pos
-
-        # Move rat if selected
-        if moving_rat:
-            old_rat_pos = true_rat_pos
-            true_rat_pos = move_rat(ship, true_rat_pos)
-            if true_rat_pos != old_rat_pos:
-                print(f"Step {step}: Rat moved to {true_rat_pos}")
+        steps.append((bot_pos, moves, senses, pings, len(rat_knowledge)))
 
         pings += 1
         ping = ping_detector(bot_pos, true_rat_pos, alpha)
@@ -161,27 +133,12 @@ def baseline_bot(ship, alpha=0.15):
         ping_prob_true = 1.0 if dist_to_rat == 0 else np.exp(-alpha * (dist_to_rat - 1))
         print(f"Step {step}: Pinged at {bot_pos}, Heard ping: {ping}, Ping prob: {ping_prob_true:.3f}")
 
-        steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
-
         if ping and dist_to_rat == 0:
             print(f"Rat found at {bot_pos}")
             return moves, senses, pings, steps, true_rat_pos
 
         if bot_pos in rat_probs:
             rat_probs[bot_pos] = 0
-
-        if moving_rat:
-            new_probs = {}
-            for pos in rat_knowledge:
-                valid_moves = [m for m in ['up', 'down', 'left', 'right'] if move(ship, pos, m) != pos]
-                if valid_moves:
-                    transition_prob = 1.0 / (len(valid_moves) + 1)
-                    new_probs[pos] = rat_probs.get(pos, 0) * transition_prob
-                    for m in valid_moves:
-                        next_pos = move(ship, pos, m)
-                        new_probs[next_pos] = new_probs.get(next_pos, 0) + rat_probs.get(pos, 0) * transition_prob
-            rat_probs = new_probs
-
         total_prob = 0.0
         for pos in rat_knowledge:
             if pos == bot_pos:
@@ -205,6 +162,7 @@ def baseline_bot(ship, alpha=0.15):
             rat_knowledge.remove(pos)
 
         print(f"Step {step}: Rat KB size after pruning: {len(rat_knowledge)}")
+        steps.append((bot_pos, moves, senses, pings, len(rat_knowledge)))
         step += 1
 
     print(f"Phase 2 done, Bot at {bot_pos}, Rat at {true_rat_pos}, Found: {bot_pos == true_rat_pos}")
