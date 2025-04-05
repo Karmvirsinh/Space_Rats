@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import numpy as np
 import random
 from source.utils import sense_blocked, move, ping_detector, manhattan_distance, bfs_path
