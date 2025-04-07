@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 import numpy as np
 import matplotlib.pyplot as plt
 from baseline_bot1_withratmove import baseline_bot
