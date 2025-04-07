@@ -3,13 +3,13 @@ import numpy as np
 import random
 from ship_generator import generate_ship
 from baseline_bot import baseline_bot           # Adjust this import if needed.
-from custom_bot_me import unified_bot_stationary  # Adjust this import if needed.
+from trying import custom_bot_enhanced   # Adjust this import if needed.
 
 def run_bots_same_ship(ship_size=30, alpha=0.15):
     """
-    Generates one ship, then runs both bots (baseline and unified stationary) on that same ship and 
+    Generates one ship, then runs both bots (baseline and enhanced custom bot) on that same ship and 
     with the same random state so that they get the same bot and rat spawn positions.
-    Returns a tuple (moves_baseline, moves_unified).
+    Returns a tuple (moves_baseline, moves_enhanced).
     """
     # Generate one ship.
     ship = generate_ship(ship_size)
@@ -20,38 +20,38 @@ def run_bots_same_ship(ship_size=30, alpha=0.15):
     result_baseline = baseline_bot(ship, alpha=alpha)
     moves_baseline = result_baseline[0]
     
-    # Reset random state so the unified bot sees the same random sequence.
+    # Reset random state so the enhanced bot sees the same random sequence.
     random.setstate(state)
     
-    # Run the improved unified bot (stationary rat version) on the same ship.
-    result_unified = unified_bot_stationary(ship, alpha=alpha, max_steps_phase2=1000)
-    moves_unified = result_unified[0]
+    # Run the enhanced custom bot on the same ship.
+    result_enhanced = custom_bot_enhanced(ship, alpha=alpha, max_steps_phase2=1000, replan_interval=3)
+    moves_enhanced = result_enhanced[0]
     
-    return moves_baseline, moves_unified
+    return moves_baseline, moves_enhanced
 
 def test_bots(num_runs=100, ship_size=30, alpha=0.15):
     baseline_moves = []
-    unified_moves = []
+    enhanced_moves = []
     for i in range(num_runs):
-        mb, mu = run_bots_same_ship(ship_size=ship_size, alpha=alpha)
+        mb, me = run_bots_same_ship(ship_size=ship_size, alpha=alpha)
         baseline_moves.append(mb)
-        unified_moves.append(mu)
-        print(f"Run {i+1:3d}: Baseline moves = {mb}, Unified moves = {mu}")
+        enhanced_moves.append(me)
+        print(f"Run {i+1:3d}: Baseline moves = {mb}, Enhanced moves = {me}")
     avg_baseline = np.mean(baseline_moves)
-    avg_unified = np.mean(unified_moves)
-    return avg_baseline, avg_unified, baseline_moves, unified_moves
+    avg_enhanced = np.mean(enhanced_moves)
+    return avg_baseline, avg_enhanced, baseline_moves, enhanced_moves
 
 def main():
     num_runs = 100
     ship_size = 30
     alpha = 0.15
-    avg_baseline, avg_unified, baseline_moves, unified_moves = test_bots(num_runs=num_runs, ship_size=ship_size, alpha=alpha)
+    avg_baseline, avg_enhanced, baseline_moves, enhanced_moves = test_bots(num_runs=num_runs, ship_size=ship_size, alpha=alpha)
     print(f"\nAverage moves (Baseline Bot): {avg_baseline:.2f}")
-    print(f"Average moves (Unified Bot): {avg_unified:.2f}")
+    print(f"Average moves (Enhanced Bot): {avg_enhanced:.2f}")
     
     # Plot the average moves as a bar graph.
-    bots = ['Baseline Bot', 'Unified Bot']
-    averages = [avg_baseline, avg_unified]
+    bots = ['Baseline Bot', 'Enhanced Bot']
+    averages = [avg_baseline, avg_enhanced]
     
     plt.figure(figsize=(6, 4))
     bars = plt.bar(bots, averages, color=['skyblue', 'salmon'])
