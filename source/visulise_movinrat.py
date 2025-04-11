@@ -1,11 +1,11 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from baseline_bot1_withratmove import baseline_bot
+from custom_bot_bayesian import custom_bayesian_bot
 from ship_generator import generate_ship
 
 def visualize_bot(ship):
-    moves, senses, pings, steps, true_rat_pos = baseline_bot(ship, alpha=0.15)
+    moves, senses, pings, steps, true_rat_pos = custom_bayesian_bot(ship, alpha=0.15)
 
     plt.ion()
     fig, ax = plt.subplots()
