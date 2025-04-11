@@ -241,7 +241,7 @@ def custom_bot_bayesian(ship, alpha=0.15):
     return moves, senses, pings, estimated_spawn, true_rat_pos, caught
 
 # ----- Comparison Logic -----
-def evaluate_bots(ship_size=30, num_trials=50):
+def evaluate_bots(ship_size=30, num_trials=100):
     alpha_values = np.arange(0.0, 0.90, 0.05)  # 0.05, 0.1, ..., 0.7
     baseline_avg_moves = []
     baseline_success_rates = []
@@ -307,6 +307,6 @@ def plot_comparison(alpha_values, baseline_avg_moves, custom_avg_moves, ship_siz
 
 if __name__ == "__main__":
     ship_size = 30
-    num_trials = 50
+    num_trials = 100
     alpha_values, baseline_avg_moves, custom_avg_moves = evaluate_bots(ship_size=ship_size, num_trials=num_trials)
     plot_comparison(alpha_values, baseline_avg_moves, custom_avg_moves, ship_size, num_trials)

@@ -187,8 +187,8 @@ def custom_bayesian_bot(ship, alpha=0.15, moving_rat=False):
     return moves, senses, pings, steps, true_rat_pos
 
 # ----- Plotting Logic for Both Rat Types -----
-def evaluate_bot(ship_size=30, num_trials=50):
-    alpha_values = np.arange(0.05, 0.95, 0.05)  # 0.05, 0.1, ..., 0.7
+def evaluate_bot(ship_size=30, num_trials=100):
+    alpha_values = np.arange(0.0, 0.90, 0.05)  # 0.05, 0.1, ..., 0.7
     stationary_avg_moves = []
     moving_avg_moves = []
 
@@ -231,6 +231,6 @@ def plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_s
 
 if __name__ == "__main__":
     ship_size = 30
-    num_trials = 50
+    num_trials = 100
     alpha_values, stationary_avg_moves, moving_avg_moves = evaluate_bot(ship_size=ship_size, num_trials=num_trials)
     plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_size, num_trials)

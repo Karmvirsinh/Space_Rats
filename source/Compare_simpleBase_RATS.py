@@ -97,7 +97,7 @@ def simple_baseline_bot(ship, alpha=0.15, moving_rat=False):  # Added moving_rat
     # Add position history to detect oscillation
     position_history = []
     history_length = 10  # Track the last 10 positions to detect cycles
-    oscillation_threshold = 4  # Look for cycles of length 4 (e.g., A -> B -> A -> B)
+    oscillation_threshold = 4  # Look for cycles of length 4 (
 
     while bot_pos != true_rat_pos and step < max_steps:
         # Add current position to history
@@ -105,7 +105,7 @@ def simple_baseline_bot(ship, alpha=0.15, moving_rat=False):  # Added moving_rat
         if len(position_history) > history_length:
             position_history.pop(0)
 
-        # Detect oscillation (e.g., A -> B -> A -> B pattern)
+        # Detect oscillation
         oscillating = False
         if len(position_history) >= oscillation_threshold:
             recent_positions = position_history[-oscillation_threshold:]
@@ -188,7 +188,7 @@ def simple_baseline_bot(ship, alpha=0.15, moving_rat=False):  # Added moving_rat
 
 # ----- Plotting Logic for Both Rat Types -----
 def evaluate_bot(ship_size=30, num_trials=100):
-    alpha_values = np.arange(0.05, 0.75, 0.05)  # 0.05, 0.1, ..., 0.7
+    alpha_values = np.arange(0.0, 0.90, 0.05)  # 0.05, 0.1, ..., 0.7
     stationary_avg_moves = []
     moving_avg_moves = []
 
@@ -231,6 +231,6 @@ def plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_s
 
 if __name__ == "__main__":
     ship_size = 30
-    num_trials = 10
+    num_trials = 100
     alpha_values, stationary_avg_moves, moving_avg_moves = evaluate_bot(ship_size=ship_size, num_trials=num_trials)
     plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_size, num_trials)
