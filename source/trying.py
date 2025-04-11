@@ -1,16 +1,18 @@
+
 import numpy as np
 import random
+import heapq
 import pygame
 from ship_generator import generate_ship
 from utils import move, ping_detector, manhattan_distance, bfs_path
 
-#########################################
+##########################################
 # Helper Functions: Localization (Phase 1)
-#########################################
+##########################################
 
 def get_surroundings(ship, pos):
     """
-    Returns a tuple representing the states (0 = blocked, 1 = open) of the 8 neighboring cells.
+    Returns a tuple representing the states (0=blocked, 1=open) of the 8 neighboring cells.
     Order: top-left, top, top-right, left, right, bottom-left, bottom, bottom-right.
     Out-of-bound positions are treated as blocked.
     """
@@ -42,8 +44,8 @@ def reverse_move(direction):
 
 def update_knowledge_after_move(ship, bot_knowledge, direction, bot_moved):
     """
-    Simulate the move on all candidate positions.
-    If the bot moved, keep only candidates that would also move; if not, keep those that remain.
+    Updates candidate positions in bot_knowledge after a move.
+    If the bot moved, retains only candidates that would also move; otherwise, those that remain.
     """
     new_knowledge = set()
     for pos in bot_knowledge:
@@ -56,71 +58,118 @@ def update_knowledge_after_move(ship, bot_knowledge, direction, bot_moved):
                 new_knowledge.add(pos)
     return new_knowledge
 
-#########################################
+##########################################
 # Helper Functions: Visualization with Pygame
-#########################################
+##########################################
 
 def visualize_state_pygame(ship, bot_pos, rat_pos, rat_probs, screen, cell_size, font):
     """
-    Uses Pygame to display:
-      - The ship grid (open cells: white; blocked: dark gray).
-      - Each cell's probability (from rat_probs) is used to color that cell:
-           probability 0 -> white; probability 1 -> pure red.
-      - The bot's position is drawn as a red circle; the rat as a green circle.
-      - A key is displayed at the bottom.
+    Visualizes the current state using Pygame:
+      - Draws the ship grid (open: white; blocked: dark gray).
+      - Colors each open cell based on its probability: 0 = white, 1 = red.
+      - Draws the bot (red circle) and the rat (green circle).
+      - Displays a key at the bottom.
     """
-    D = ship.shape[0]
     FPS=60
-    # Fill background.
+    D = ship.shape[0]
     screen.fill((0, 0, 0))
-    # Draw grid cells.
     for r in range(D):
         for c in range(D):
             rect = pygame.Rect(c * cell_size, r * cell_size, cell_size, cell_size)
             if ship[r, c] == 1:
-                # If this cell is in rat_probs, compute color based on probability.
                 if (r, c) in rat_probs:
-                    # Map probability 0 -> white, 1 -> red.
                     prob = rat_probs[(r, c)]
-                    # Linearly interpolate: color = (255, (1-prob)*255, (1-prob)*255)
+                    # Interpolate: 0 -> white, 1 -> red.
                     color = (255, int((1 - prob) * 255), int((1 - prob) * 255))
                 else:
-                    color = (255, 255, 255)  # white
+                    color = (255, 255, 255)
             else:
-                color = (50, 50, 50)  # blocked cells: dark gray
+                color = (50, 50, 50)
             pygame.draw.rect(screen, color, rect)
-            pygame.draw.rect(screen, (200, 200, 200), rect, 1)  # cell border
-
-    # Draw bot (red circle)
-    bot_center = (int(bot_pos[1] * cell_size + cell_size/2), int(bot_pos[0] * cell_size + cell_size/2))
+            pygame.draw.rect(screen, (200,200,200), rect, 1)
+    # Draw bot and rat.
+    bot_center = (int(bot_pos[1]*cell_size + cell_size/2), int(bot_pos[0]*cell_size + cell_size/2))
     pygame.draw.circle(screen, (255, 0, 0), bot_center, cell_size//2)
-    # Draw rat (green circle)
-    rat_center = (int(rat_pos[1] * cell_size + cell_size/2), int(rat_pos[0] * cell_size + cell_size/2))
+    rat_center = (int(rat_pos[1]*cell_size + cell_size/2), int(rat_pos[0]*cell_size + cell_size/2))
     pygame.draw.circle(screen, (0, 255, 0), rat_center, cell_size//2)
-    
-    # Draw key at bottom.
+    # Draw key.
     key_text = font.render("Key: Cell color intensity = probability rat is here", True, (255,255,255))
     screen.blit(key_text, (5, D * cell_size + 5))
-    
     pygame.display.flip()
     clock = pygame.time.Clock()
-    clock.tick(FPS)
+    # clock.tick(FPS)
 
-#########################################
-# Enhanced Custom Bot: Using BFS for Path Planning and Targeting the Highest Probability Cell
-#########################################
+##########################################
+# Helper Functions: BFS-based Simulation Rollouts
+##########################################
 
-def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval=5, visualize=True):
+def weighted_sample(rat_probs, num_samples):
     """
-    Enhanced bot that:
+    Returns a list of samples drawn from rat_probs using weighted sampling.
+    """
+    candidates = list(rat_probs.keys())
+    weights = [rat_probs[c] for c in candidates]
+    return random.choices(candidates, weights=weights, k=num_samples)
+
+def simulate_rollout_cost(target, rat_probs, ship, num_samples=10):
+    """
+    Estimates expected cost-to-go from target by sampling rat positions (based on rat_probs)
+    and averaging the BFS distances from target to each sample.
+    """
+    samples = weighted_sample(rat_probs, num_samples)
+    total = 0
+    count = 0
+    for sample in samples:
+        path = bfs_path(ship, target, sample)
+        if path:
+            total += len(path)
+            count += 1
+        else:
+            total += 1000
+            count += 1
+    return total / count if count > 0 else float('inf')
+
+def candidate_total_cost(ship, bot_pos, candidate, rat_probs):
+    """
+    Computes total cost for a candidate target as:
+       cost = (BFS distance from bot_pos to candidate) + 1 + (expected future cost from candidate via rollouts)
+    """
+    path = bfs_path(ship, bot_pos, candidate)
+    if not path:
+        return float('inf')
+    travel_cost = len(path)
+    rollout_cost = simulate_rollout_cost(candidate, rat_probs, ship, num_samples=10)
+    return travel_cost + 1 + rollout_cost
+
+def argmin_cost_candidate(ship, bot_pos, rat_probs):
+    """
+    Returns the candidate from rat_probs with the minimum total cost.
+    """
+    best_candidate = None
+    best_cost = float('inf')
+    for candidate in rat_probs:
+        cost = candidate_total_cost(ship, bot_pos, candidate, rat_probs)
+        if cost < best_cost:
+            best_cost = cost
+            best_candidate = candidate
+    return best_candidate
+
+##########################################
+# Enhanced Custom Bot with Pygame Visualization and Modified Bayesian Update
+##########################################
+
+def custom_bot_enhanced(ship, alpha=0.15, gamma=0.5, max_steps_phase2=1000, replan_interval=5, visualize=True):
+    """
+    Enhanced custom bot that:
       1. Localizes itself using 8-neighbor sensor filtering.
-      2. Tracks a stationary rat using:
-         - Bayesian update of belief,
-         - Zeroing visited cells (setting their probability to zero),
-         - Target selection: always choose the cell with the highest probability,
-         - BFS search for path planning,
-         - Receding horizon planning (replan every replan_interval moves) and oscillation detection.
-      3. Visualizes the grid and belief distribution using Pygame (cells colored based on probability).
+      2. Tracks a stationary rat using a modified Bayesian update where, if no ping is received,
+         the likelihood is computed as (1 - base)^gamma (with gamma < 1 to reduce penalty),
+         ensuring that the expected future cost is lower.
+      3. Always heads toward the cell with the highest probability.
+      4. Uses BFS for path planning.
+      5. Uses receding horizon planning (replan_interval) and oscillation detection.
+      6. Visualizes the grid with Pygame: cells are colored from white (low probability) to red (high probability)
+         and a key shows that cell color intensity represents the probability.
     
     Returns (moves, senses, pings, estimated_spawn, true_rat_pos).
     """
@@ -129,9 +178,9 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
     senses = 0
     pings = 0
 
-    ##################################
+    # --------------------
     # Phase 1: Localization
-    ##################################
+    # --------------------
     candidate_set = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1}
     true_bot_pos = random.choice(list(candidate_set))
     bot_pos = true_bot_pos
@@ -173,17 +222,19 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
         print("Localization not unique; using current bot pos:", bot_pos)
     bot_pos = estimated_spawn
 
-    ##################################
-    # Phase 2: Rat Tracking (Stationary)
-    ##################################
+    # --------------------
+    # Phase 2: Enhanced Rat Tracking (Stationary)
+    # --------------------
     rat_candidates = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1 and (r, c) != bot_pos}
     true_rat_pos = random.choice(list(rat_candidates))
     print("Phase 2: Rat Tracking (Enhanced)")
     print("True rat spawn:", true_rat_pos)
-    # Initialize uniform belief over candidate rat positions.
     rat_probs = {pos: 1.0 / len(rat_candidates) for pos in rat_candidates}
     
-    # Set up Pygame visualization.
+    # For accumulating sensor evidence (not used in this version but could be extended).
+    ping_count = 1
+    
+    # Set up Pygame.
     cell_size = 20
     if visualize:
         pygame.init()
@@ -191,7 +242,6 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
         pygame.display.set_caption("Enhanced Bot Visualization")
         font = pygame.font.SysFont("Arial", 14)
     
-    # Receding horizon variables.
     current_target = None
     current_path = []
     steps_since_replan = 0
@@ -205,7 +255,6 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
                     pygame.quit()
                     return moves, senses, pings, estimated_spawn, true_rat_pos
         
-        # Sensor reading update.
         sensor_ping = ping_detector(bot_pos, true_rat_pos, alpha)
         d = manhattan_distance(bot_pos, true_rat_pos)
         pings += 1
@@ -214,8 +263,8 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
             print("Rat captured at", bot_pos)
             break
         
-        # Bayesian update of belief.
-        # First, set the probability for the current cell to 0 because the rat isn't there.
+        # Bayesian update of belief:
+        # First, zero out the probability for the cell the bot is on.
         if bot_pos in rat_probs:
             rat_probs[bot_pos] = 0
         new_probs = {}
@@ -226,8 +275,11 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
                 likelihood = 1.0
             else:
                 base = np.exp(-alpha * (d_candidate - 1))
-                # For this simplified version, we don't accumulate evidence—just use the current sensor.
-                likelihood = base if sensor_ping else (1.0 - base)
+                if sensor_ping:
+                    likelihood = base ** ping_count
+                else:
+                    # When no ping, use (1 - base)^gamma (gamma < 1 reduces the penalty)
+                    likelihood = (1.0 - base) ** gamma
             new_p = prob * likelihood
             new_probs[pos] = new_p
             total_prob += new_p
@@ -235,12 +287,12 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
             for pos in new_probs:
                 new_probs[pos] /= total_prob
         rat_probs = new_probs
-        
-        # Target selection: choose the candidate with the highest probability.
+
+        # Select target: choose the candidate with the highest probability.
         current_target = max(rat_probs, key=rat_probs.get)
-        print(f"Selected target (highest probability): {current_target} with probability {rat_probs[current_target]:.2f}")
+        print(f"Selected target: {current_target} with probability {rat_probs[current_target]:.2f}")
         
-        # Replanning: Use BFS (not A*) to plan a path.
+        # Replan path using BFS.
         if steps_since_replan == 0 or not current_path:
             current_path = bfs_path(ship, bot_pos, current_target)
             steps_since_replan = replan_interval
@@ -250,7 +302,7 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
                     chosen_move = random.choice(valid_moves)
                     print("No BFS path found; taking a random move:", chosen_move)
                 else:
-                    print("No valid moves; terminating Phase 2.")
+                    print("No valid moves available; terminating Phase 2.")
                     break
             else:
                 chosen_move = current_path.pop(0)
@@ -265,7 +317,6 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
         
         new_bot_pos = move(ship, bot_pos, chosen_move)
         moves += 1
-        # Oscillation detection.
         if new_bot_pos in recent_positions:
             print("Oscillation detected at", new_bot_pos, "; forcing replan.")
             current_path = []
@@ -277,17 +328,17 @@ def custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval
         print(f"Moving {chosen_move} -> New bot pos: {bot_pos}")
         steps_since_replan = max(steps_since_replan - 1, 0)
         
-        if visualize:
-            visualize_state_pygame(ship, bot_pos, true_rat_pos, rat_probs, screen, cell_size, font)
+        # if visualize:
+            # visualize_state_pygame(ship, bot_pos, true_rat_pos, rat_probs, screen, cell_size, font)
     
-    if visualize:
-        pygame.time.wait(2000)
-        pygame.quit()
+    # if visualize:
+    #     pygame.time.wait(2000)
+    #     pygame.quit()
     
     print("Phase 2 complete: Bot at", bot_pos, "True rat at", true_rat_pos)
     return moves, senses, pings, estimated_spawn, true_rat_pos
 
 if __name__ == "__main__":
     ship = generate_ship(30)
-    moves, senses, pings, est_spawn, true_rat = custom_bot_enhanced(ship, alpha=0.15, max_steps_phase2=1000, replan_interval=5, visualize=True)
+    moves, senses, pings, est_spawn, true_rat = custom_bot_enhanced(ship, alpha=0.15, gamma=0.5, max_steps_phase2=1000, replan_interval=5, visualize=True)
     print(f"Final stats: Moves: {moves}, Senses: {senses}, Pings: {pings}")

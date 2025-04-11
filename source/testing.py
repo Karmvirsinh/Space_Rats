@@ -3,13 +3,13 @@ import random
 from ship_generator import generate_ship
 from utils import move, ping_detector, manhattan_distance, bfs_path
 
-# ----- Helper Functions for Phase 1 (Localization) -----
+# ----- Helper Functions for Localization -----
 
 def get_surroundings(ship, pos):
     """
-    Returns a tuple representing the 8-neighbor pattern (0=blocked, 1=open) around pos.
-    Order: top-left, top, top-right, left, right, bottom-left, bottom, bottom-right.
-    Out-of-bound positions are treated as blocked.
+    Returns a tuple representing the states (0=blocked, 1=open) of the 8 neighboring cells 
+    (order: top-left, top, top-right, left, right, bottom-left, bottom, bottom-right).
+    Out-of-bound cells are considered blocked.
     """
     D = ship.shape[0]
     directions = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]
@@ -32,37 +32,64 @@ def add_move(pos, direction):
 
 def reverse_move(direction):
     """
-    Returns the reverse of a given move.
+    Returns the reverse (opposite) of the given move.
     """
-    rev = {'up':'down', 'down':'up', 'left':'right', 'right':'left'}
+    rev = {'up': 'down', 'down': 'up', 'left': 'right', 'right': 'left'}
     return rev[direction]
 
-# ----- Helper Functions for Phase 2 (Rat Tracking) -----
+# ----- Helper for Phase 2: Cost Calculation -----
 
-def weighted_centroid(prob_dict):
+def candidate_cost(ship, bot_pos, candidate, rat_probs):
     """
-    Computes the weighted centroid of a belief distribution.
+    Computes an approximate cost of using candidate as the target.
+    Cost = (shortest-path distance from bot_pos to candidate) 
+         + 1 (for a sensing action) 
+         + (weighted average Manhattan distance from candidate to all rat candidate cells,
+            weighted by rat_probs).
+    If no path exists (i.e. bfs_path returns empty), the cost is set to infinity.
     """
-    total = sum(prob_dict.values())
-    if total == 0:
-        return None
-    r_sum = sum(pos[0] * prob for pos, prob in prob_dict.items())
-    c_sum = sum(pos[1] * prob for pos, prob in prob_dict.items())
-    return (int(round(r_sum / total)), int(round(c_sum / total)))
+    path = bfs_path(ship, bot_pos, candidate)
+    if not path:
+        return float('inf')
+    path_cost = len(path)
+    future_cost = sum(rat_probs[r] * manhattan_distance(candidate, r) for r in rat_probs)
+    return path_cost + 1 + future_cost
 
-def argmax_candidate(prob_dict):
+def argmin_cost_candidate(ship, bot_pos, rat_probs):
     """
-    Returns the candidate (cell) with the highest probability.
+    Returns the candidate in rat_probs with the minimum cost, according to candidate_cost.
     """
-    return max(prob_dict, key=prob_dict.get)
+    best_candidate = None
+    best_cost = float('inf')
+    for candidate in rat_probs:
+        cost = candidate_cost(ship, bot_pos, candidate, rat_probs)
+        if cost < best_cost:
+            best_cost = cost
+            best_candidate = candidate
+    return best_candidate
 
-# ----- Unified Bot for Stationary Rat -----
+# ----- Custom Bot Implementation -----
 
-def unified_bot(ship, alpha=0.15, rat_moving=False, replan_interval=3, max_steps_phase2=1000):
+def unified_bot_stationary(ship, alpha=0.15, max_steps_phase2=1000):
     """
-    Runs a unified bot that first localizes itself and then tracks a stationary rat.
-    (Set rat_moving=False to simulate a stationary rat.)
-    Returns (moves, senses, pings, estimated_spawn, true_rat_pos)
+    Runs a custom bot that first localizes itself and then tracks a stationary rat using a cost-based heuristic.
+    
+    Phase 1: Localization
+      - All open cells are candidate spawn locations.
+      - The bot “senses” its 8 neighbors and filters candidates to those with matching patterns.
+      - It then makes random valid moves (updating the candidate set by simulating the move on each candidate)
+        until only one candidate remains, then backtracks to compute the estimated spawn.
+    
+    Phase 2: Rat Tracking (Stationary Rat)
+      - Initializes a uniform belief distribution over all open cells (except the bot's spawn) as candidate rat positions.
+      - At each iteration, performs a Bayesian update of the belief based on the sensor reading.
+      - Computes the cost for each candidate as:
+             cost = (shortest-path distance from bot to candidate) + 1 + (weighted average distance from candidate to rat candidates).
+      - Chooses the candidate with the lowest cost as the target.
+      - Plans a path (via BFS) toward that target and moves one step along that path.
+      - Repeats until the sensor definitively indicates the rat is captured (i.e. bot position equals rat position).
+    
+    Returns a tuple: (moves, senses, pings, estimated_spawn, true_rat_pos)
     """
     D = ship.shape[0]
     moves = 0
@@ -71,129 +98,109 @@ def unified_bot(ship, alpha=0.15, rat_moving=False, replan_interval=3, max_steps
 
     # --- Phase 1: Localization ---
     candidate_set = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1}
-    # For simulation: choose true bot spawn (hidden to bot)
     true_bot_pos = random.choice(list(candidate_set))
+    bot_pos = true_bot_pos
     move_history = []
-    current_sensor = get_surroundings(ship, true_bot_pos)
+    sensor = get_surroundings(ship, bot_pos)
     senses += 1
-    candidate_set = {pos for pos in candidate_set if get_surroundings(ship, pos) == current_sensor}
-    print(f"Phase 1: True bot spawn: {true_bot_pos}")
-    print(f"Initial sensor: {current_sensor}, candidate set size: {len(candidate_set)}")
-    
-    while len(candidate_set) > 1:
-        valid_moves = [m for m in ['up','down','left','right'] if move(ship, true_bot_pos, m) != true_bot_pos]
+    candidate_set = {pos for pos in candidate_set if get_surroundings(ship, pos) == sensor}
+    print("Phase 1: Localization")
+    print("True bot spawn:", true_bot_pos)
+    print("Initial sensor:", sensor, "Candidates:", len(candidate_set))
+    step_local = 0
+    max_steps_local = 100
+    while len(candidate_set) > 1 and step_local < max_steps_local:
+        valid_moves = [m for m in ['up','down','left','right'] if move(ship, bot_pos, m) != bot_pos]
         if not valid_moves:
-            print("No valid moves available for localization.")
             break
         chosen_move = random.choice(valid_moves)
         move_history.append(chosen_move)
-        true_bot_pos = move(ship, true_bot_pos, chosen_move)
+        bot_pos = move(ship, bot_pos, chosen_move)
         moves += 1
-        new_sensor = get_surroundings(ship, true_bot_pos)
+        sensor = get_surroundings(ship, bot_pos)
         senses += 1
-        print(f"Moved {chosen_move} to {true_bot_pos}, sensor: {new_sensor}")
-        new_candidate_set = set()
+        new_candidates = set()
         for pos in candidate_set:
             new_pos = move(ship, pos, chosen_move)
-            if get_surroundings(ship, new_pos) == new_sensor:
-                new_candidate_set.add(new_pos)
-        candidate_set = new_candidate_set
-        print(f"Candidate set size: {len(candidate_set)}")
-    
+            if get_surroundings(ship, new_pos) == sensor:
+                new_candidates.add(new_pos)
+        candidate_set = new_candidates
+        print(f"Move: {chosen_move}, Bot pos: {bot_pos}, Sensor: {sensor}, Candidates left: {len(candidate_set)}")
+        step_local += 1
     if len(candidate_set) == 1:
         unique_candidate = candidate_set.pop()
         estimated_spawn = unique_candidate
         for m in reversed(move_history):
             estimated_spawn = add_move(estimated_spawn, reverse_move(m))
-        print(f"Estimated spawn: {estimated_spawn}")
+        print("Estimated spawn (backtracked):", estimated_spawn)
     else:
-        estimated_spawn = true_bot_pos
-        print("Localization did not converge uniquely; using current position.")
-    
-    # Now the bot is localized.
+        estimated_spawn = bot_pos
+        print("Localization not unique; using current bot pos:", bot_pos)
     bot_pos = estimated_spawn
 
-    # --- Phase 2: Efficient Rat Tracking (Stationary Rat) ---
-    # All open cells except bot's spawn are possible rat locations.
+    # --- Phase 2: Custom Rat Tracking (Stationary Rat) ---
     rat_candidates = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1 and (r, c) != bot_pos}
     true_rat_pos = random.choice(list(rat_candidates))
-    print(f"Phase 2: True rat spawn: {true_rat_pos}")
-    # Initialize uniform belief distribution over rat candidates.
-    rat_probs = {pos: 1.0/len(rat_candidates) for pos in rat_candidates}
-
-    steps_since_replan = 0
-    current_path = []  # current planned BFS path
-    # Loop until the sensor definitively indicates the rat is at the bot's cell.
-    while moves < max_steps_phase2:
-        # For a stationary rat, skip prediction.
-        # Sensor reading update.
+    print("Phase 2: Rat Tracking (Custom Bot)")
+    print("True rat spawn:", true_rat_pos)
+    # Initialize uniform belief over rat candidates.
+    rat_probs = {pos: 1.0 / len(rat_candidates) for pos in rat_candidates}
+    
+    step_phase2 = 0
+    while bot_pos != true_rat_pos and moves < max_steps_phase2:
         sensor_ping = ping_detector(bot_pos, true_rat_pos, alpha)
-        current_dist = manhattan_distance(bot_pos, true_rat_pos)
+        d = manhattan_distance(bot_pos, true_rat_pos)
         pings += 1
-        print(f"Bot at {bot_pos} | Sensor ping: {sensor_ping} | Distance to rat: {current_dist}")
-        if sensor_ping and current_dist == 0:
-            print(f"Rat captured at {bot_pos}!")
+        # Terminate when sensor indicates capture.
+        if sensor_ping and d == 0:
+            print("Rat captured at", bot_pos)
             break
         
-        # --- Bayesian Update ---
-        new_rat_probs = {}
+        # --- Bayesian Update of Belief ---
+        new_probs = {}
         total_prob = 0.0
         for pos, prob in rat_probs.items():
-            d = manhattan_distance(bot_pos, pos)
-            if d == 0:
+            d_candidate = manhattan_distance(bot_pos, pos)
+            if d_candidate == 0:
                 likelihood = 1.0
             else:
-                base = np.exp(-alpha * (d - 1))
+                base = np.exp(-alpha * (d_candidate - 1))
                 likelihood = base if sensor_ping else (1.0 - base)
             new_p = prob * likelihood
-            new_rat_probs[pos] = new_p
+            new_probs[pos] = new_p
             total_prob += new_p
         if total_prob > 0:
-            for pos in new_rat_probs:
-                new_rat_probs[pos] /= total_prob
-        rat_probs = new_rat_probs
+            for pos in new_probs:
+                new_probs[pos] /= total_prob
+        rat_probs = new_probs
 
-        # Choose target as candidate with maximum probability.
-        target_candidate = argmax_candidate(rat_probs)
-        print(f"Target candidate: {target_candidate} with probability {rat_probs[target_candidate]:.4f}")
+        # --- Target Selection Using Cost Function ---
+        target_candidate = argmin_cost_candidate(ship, bot_pos, rat_probs)
+        target_cost = candidate_cost(ship, bot_pos, target_candidate, rat_probs)
+        print(f"Bot at {bot_pos}: Sensor ping: {sensor_ping}, Distance to rat: {d}")
+        print(f"Target candidate: {target_candidate} with cost {target_cost:.2f}")
 
-        # Replan path every replan_interval moves or if no current path.
-        if steps_since_replan == 0 or not current_path:
-            current_path = bfs_path(ship, bot_pos, target_candidate)
-            steps_since_replan = replan_interval
-            if not current_path:
-                valid_moves = [m for m in ['up','down','left','right'] if move(ship, bot_pos, m) != bot_pos]
-                if valid_moves:
-                    chosen_move = random.choice(valid_moves)
-                    print("No path to target; taking a random valid move.")
-                else:
-                    print("No valid moves available; terminating Phase 2.")
-                    break
+        # --- Path Planning ---
+        path = bfs_path(ship, bot_pos, target_candidate)
+        if not path:
+            valid_moves = [m for m in ['up','down','left','right'] if move(ship, bot_pos, m) != bot_pos]
+            if valid_moves:
+                chosen_move = random.choice(valid_moves)
+                print("No path found; taking a random valid move:", chosen_move)
             else:
-                chosen_move = current_path.pop(0)
+                print("No valid moves; terminating Phase 2.")
+                break
         else:
-            chosen_move = current_path.pop(0) if current_path else None
-            if not chosen_move:
-                current_path = bfs_path(ship, bot_pos, target_candidate)
-                if not current_path:
-                    valid_moves = [m for m in ['up','down','left','right'] if move(ship, bot_pos, m) != bot_pos]
-                    chosen_move = random.choice(valid_moves) if valid_moves else None
-                else:
-                    chosen_move = current_path.pop(0)
-        if not chosen_move:
-            print("No move chosen; terminating Phase 2.")
-            break
-        new_bot_pos = move(ship, bot_pos, chosen_move)
+            chosen_move = path[0]
+        bot_pos = move(ship, bot_pos, chosen_move)
         moves += 1
-        print(f"Moving {chosen_move} from {bot_pos} to {new_bot_pos} toward target {target_candidate}")
-        bot_pos = new_bot_pos
-        steps_since_replan = max(steps_since_replan - 1, 0)
-    
-    print(f"Phase 2 complete: Bot at {bot_pos}, True rat at {true_rat_pos}")
+        print(f"Moving {chosen_move} -> New bot pos: {bot_pos}")
+        step_phase2 += 1
+
+    print("Phase 2 complete: Bot at", bot_pos, "True rat at", true_rat_pos)
     return moves, senses, pings, estimated_spawn, true_rat_pos
 
 if __name__ == "__main__":
     ship = generate_ship(30)
-    # For stationary rat, set rat_moving=False.
-    moves, senses, pings, estimated_spawn, true_rat_pos = unified_bot(ship, alpha=0.15, rat_moving=False)
+    moves, senses, pings, est_spawn, true_rat = unified_bot_stationary(ship, alpha=0.15, max_steps_phase2=1000)
     print(f"Final stats: Moves: {moves}, Senses: {senses}, Pings: {pings}")
