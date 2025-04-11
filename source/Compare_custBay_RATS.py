@@ -1,3 +1,5 @@
+# compare_custom_bayesian_rat_types_avg_moves.py
+import matplotlib.pyplot as plt
 import numpy as np
 import random
 from source.utils import sense_blocked, move, ping_detector, manhattan_distance, bfs_path
@@ -39,32 +41,22 @@ def move_rat(ship, rat_pos):
         return move(ship, rat_pos, random.choice(valid_moves))
     return rat_pos
 
-def baseline_bot(ship, alpha=0.15):
+def custom_bayesian_bot(ship, alpha=0.15, moving_rat=False):
     D = ship.shape[0]
     moves, senses, pings = 0, 0, 0
     blocked_map = precompute_blocked(ship)
-
-    # Selection for rat type
-    print("Select rat type:")
-    print("1. Stationary Rat")
-    print("2. Moving Rat")
-    choice = input("Enter 1 or 2: ")
-    moving_rat = (choice == '2')
 
     # --- Phase 1: Localization ---
     bot_knowledge = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1}
     true_bot_pos = random.choice(list(bot_knowledge))
     bot_pos = true_bot_pos
     steps = [(bot_pos, moves, senses, pings, len(bot_knowledge), None)]
-    print(f"True Bot Spawn: {true_bot_pos}")
-    print(f"Step 0: Bot at {bot_pos}, Knowledge size: {len(bot_knowledge)}")
 
     move_history = []
     current_sensor = get_surroundings(ship, bot_pos)
     senses += 1
     blocked_count = sum(1 for x in current_sensor if x == 0)
     bot_knowledge = {pos for pos in bot_knowledge if get_surroundings(ship, pos) == current_sensor}
-    print(f"Step 1: Sensed {blocked_count} blocked neighbors, Knowledge size: {len(bot_knowledge)}")
     steps.append((bot_pos, moves, senses, pings, len(bot_knowledge), None))
     step = 2
     max_steps = 100
@@ -72,7 +64,6 @@ def baseline_bot(ship, alpha=0.15):
     while len(bot_knowledge) > 1 and step < max_steps:
         valid_moves = [m for m in ['up', 'down', 'left', 'right'] if move(ship, bot_pos, m) != bot_pos]
         if not valid_moves:
-            print(f"Step {step}: No valid moves available, stopping")
             break
         chosen_move = random.choice(valid_moves)
         move_history.append(chosen_move)
@@ -83,7 +74,6 @@ def baseline_bot(ship, alpha=0.15):
         current_sensor = get_surroundings(ship, bot_pos)
         senses += 1
         blocked_count = sum(1 for x in current_sensor if x == 0)
-        print(f"Step {step}: Moved {chosen_move} to {bot_pos}, Sensed {blocked_count} blocked neighbors")
 
         new_knowledge = set()
         for pos in bot_knowledge:
@@ -91,7 +81,6 @@ def baseline_bot(ship, alpha=0.15):
             if get_surroundings(ship, new_pos_candidate) == current_sensor:
                 new_knowledge.add(new_pos_candidate)
         bot_knowledge = new_knowledge
-        print(f"Step {step}: Knowledge size: {len(bot_knowledge)}")
         steps.append((bot_pos, moves, senses, pings, len(bot_knowledge), None))
         step += 1
 
@@ -100,51 +89,42 @@ def baseline_bot(ship, alpha=0.15):
         estimated_spawn = unique_candidate
         for m in reversed(move_history):
             estimated_spawn = add_move(estimated_spawn, reverse_move(m))
-        print(f"Step {step}: Localized, Bot at {estimated_spawn}")
         final_pos = estimated_spawn
         steps.append((final_pos, moves, senses, pings, 1, None))
     else:
         final_pos = bot_pos
-        print(f"Max steps reached, stuck at {len(bot_knowledge)} positions: {bot_knowledge}")
-    print(f"Phase 1 done, Bot at {final_pos}, True Spawn was {true_bot_pos}")
+    bot_pos = final_pos
 
     # --- Phase 2: Rat Tracking ---
     rat_knowledge = {(r, c) for r in range(D) for c in range(D) if ship[r, c] == 1 and (r, c) != final_pos}
     true_rat_pos = random.choice(list(rat_knowledge))
-    bot_pos = final_pos
-    print(f"True Rat Spawn: {true_rat_pos}")
-
     rat_probs = {pos: 1.0 / len(rat_knowledge) for pos in rat_knowledge}
     steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
     target_path = []
-    max_steps = 200
+    max_steps = 1000
 
     while bot_pos != true_rat_pos and step < max_steps:
         if not target_path:
             if not rat_knowledge:
-                print("Rat knowledge base is empty, cannot find rat.")
                 return moves, senses, pings, steps, true_rat_pos
             target_pos = max(rat_probs, key=rat_probs.get)
             target_path = bfs_path(ship, bot_pos, target_pos)
             if not target_path:
-                print(f"No path to {target_pos}, removing from KB")
                 del rat_probs[target_pos]
-                rat_knowledge.remove(target_pos)
+                # Only remove target_pos from rat_knowledge if it exists
+                if target_pos in rat_knowledge:
+                    rat_knowledge.remove(target_pos)
                 continue
 
         direction = target_path.pop(0)
         new_pos = move(ship, bot_pos, direction)
         moves += 1
-        if new_pos != bot_pos:
-            print(f"Step {step}: Moved {direction} to {new_pos}, Rat KB size: {len(rat_knowledge)}")
         bot_pos = new_pos
 
         # Check catch before rat moves
         if bot_pos == true_rat_pos:
             pings += 1
             ping = ping_detector(bot_pos, true_rat_pos, alpha)
-            print(f"Step {step}: Pinged at {bot_pos}, Heard ping: {ping}, Ping prob: 1.000")
-            print(f"Rat found at {bot_pos}")
             steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
             return moves, senses, pings, steps, true_rat_pos
 
@@ -152,19 +132,15 @@ def baseline_bot(ship, alpha=0.15):
         if moving_rat:
             old_rat_pos = true_rat_pos
             true_rat_pos = move_rat(ship, true_rat_pos)
-            if true_rat_pos != old_rat_pos:
-                print(f"Step {step}: Rat moved to {true_rat_pos}")
 
         pings += 1
         ping = ping_detector(bot_pos, true_rat_pos, alpha)
         dist_to_rat = manhattan_distance(bot_pos, true_rat_pos)
         ping_prob_true = 1.0 if dist_to_rat == 0 else np.exp(-alpha * (dist_to_rat - 1))
-        print(f"Step {step}: Pinged at {bot_pos}, Heard ping: {ping}, Ping prob: {ping_prob_true:.3f}")
 
         steps.append((bot_pos, moves, senses, pings, len(rat_knowledge), true_rat_pos))
 
         if ping and dist_to_rat == 0:
-            print(f"Rat found at {bot_pos}")
             return moves, senses, pings, steps, true_rat_pos
 
         if bot_pos in rat_probs:
@@ -181,6 +157,8 @@ def baseline_bot(ship, alpha=0.15):
                         next_pos = move(ship, pos, m)
                         new_probs[next_pos] = new_probs.get(next_pos, 0) + rat_probs.get(pos, 0) * transition_prob
             rat_probs = new_probs
+            # Update rat_knowledge to match the keys in rat_probs
+            rat_knowledge = set(rat_probs.keys())
 
         total_prob = 0.0
         for pos in rat_knowledge:
@@ -204,12 +182,55 @@ def baseline_bot(ship, alpha=0.15):
             del rat_probs[pos]
             rat_knowledge.remove(pos)
 
-        print(f"Step {step}: Rat KB size after pruning: {len(rat_knowledge)}")
         step += 1
 
-    print(f"Phase 2 done, Bot at {bot_pos}, Rat at {true_rat_pos}, Found: {bot_pos == true_rat_pos}")
     return moves, senses, pings, steps, true_rat_pos
 
+# ----- Plotting Logic for Both Rat Types -----
+def evaluate_bot(ship_size=30, num_trials=50):
+    alpha_values = np.arange(0.05, 0.95, 0.05)  # 0.05, 0.1, ..., 0.7
+    stationary_avg_moves = []
+    moving_avg_moves = []
+
+    ship = generate_ship(ship_size)
+
+    for alpha in alpha_values:
+        # Evaluate for stationary rat
+        stationary_moves = []
+        for _ in range(num_trials):
+            moves, _, _, _, _ = custom_bayesian_bot(ship, alpha=alpha, moving_rat=False)
+            stationary_moves.append(moves)
+        stationary_avg = np.mean(stationary_moves)
+        stationary_avg_moves.append(stationary_avg)
+
+        # Evaluate for moving rat
+        moving_moves = []
+        for _ in range(num_trials):
+            moves, _, _, _, _ = custom_bayesian_bot(ship, alpha=alpha, moving_rat=True)
+            moving_moves.append(moves)
+        moving_avg = np.mean(moving_moves)
+        moving_avg_moves.append(moving_avg)
+
+        # Simplified console output
+        print(f"Alpha = {alpha:.2f} done, Avg Moves (Stationary) = {stationary_avg:.2f}, Avg Moves (Moving) = {moving_avg:.2f}")
+
+    return alpha_values, stationary_avg_moves, moving_avg_moves
+
+def plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_size, num_trials):
+    plt.figure(figsize=(10, 6))
+    plt.plot(alpha_values, stationary_avg_moves, marker='o', label='Custom Bayesian (Stationary)', color='skyblue')
+    plt.plot(alpha_values, moving_avg_moves, marker='o', label='Custom Bayesian (Moving)', color='salmon')
+    plt.xlabel("Alpha")
+    plt.ylabel("Average Number of Moves")
+    plt.grid(True)
+    plt.legend(loc='upper left')
+    plt.title(
+        f"Custom Bayesian: Average Moves vs Alpha (Stationary vs Moving Rat)\n"
+        f"(Ship: {ship_size}x{ship_size}, {num_trials} Trials per Alpha)")
+    plt.show()
+
 if __name__ == "__main__":
-    ship = generate_ship(30)
-    moves, senses, pings, steps, true_rat_pos = baseline_bot(ship)
+    ship_size = 30
+    num_trials = 50
+    alpha_values, stationary_avg_moves, moving_avg_moves = evaluate_bot(ship_size=ship_size, num_trials=num_trials)
+    plot_comparison(alpha_values, stationary_avg_moves, moving_avg_moves, ship_size, num_trials)
